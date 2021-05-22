@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use glfw::Context;
 use rusty_v8 as v8;
 
@@ -24,6 +26,7 @@ fn main() {
                 _ => {}
             }
         }
+        se.next_frame();
         update(&buffers, &shaders);
         window.swap_buffers();
     }
@@ -162,7 +165,7 @@ impl Buffers {
             .scan(0, |st, x| {
                 let ost = *st;
                 *st += x;
-                // never negates
+                // never negative
                 Some((ost as u16) % (STONE_SURFACE_VERTEX_COUNT as u16 * 2))
             });
         let stone_surface_indices: Vec<_> = (1..STONE_SURFACE_VERTEX_COUNT - 1)
@@ -426,6 +429,39 @@ impl Shaders {
     }
 }
 
+pub struct IsoState {
+    pub next_frame_callbacks: Vec<v8::Global<v8::Function>>,
+}
+impl IsoState {
+    pub fn new() -> Self {
+        Self {
+            next_frame_callbacks: Vec::new(),
+        }
+    }
+}
+fn request_next_frame(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let f = match v8::Local::<v8::Function>::try_from(args.get(0)) {
+        Ok(f) => v8::Global::new(scope, f),
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string())
+                .expect("Failed to create error message");
+            let err = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(err);
+            return;
+        }
+    };
+
+    scope
+        .get_slot_mut::<IsoState>()
+        .expect("no state bound?")
+        .next_frame_callbacks
+        .push(f);
+}
+
 pub struct ScriptEngine {
     // Note: Inspectors must be destroyed before isolate destruction
     _inspector: v8::UniqueRef<v8::inspector::V8Inspector>,
@@ -440,6 +476,7 @@ impl ScriptEngine {
         v8::V8::initialize();
 
         let mut iso = v8::Isolate::new(v8::CreateParams::default());
+        iso.set_slot(IsoState::new());
         let mut inspector_client = Box::new(ScriptInspectorClient::new());
         let mut inspector = v8::inspector::V8Inspector::create(
             &mut iso,
@@ -455,6 +492,16 @@ impl ScriptEngine {
                 1,
                 v8::inspector::StringView::from(&b"ScriptInspector"[..]),
             );
+
+            // register global exposures
+            let global = context.global(&mut scope);
+            let name = v8::String::new(&mut scope, "requestNextFrame")
+                .expect("Failed to create function name object");
+            let func =
+                v8::FunctionTemplate::new(&mut scope, request_next_frame)
+                    .get_function(&mut scope)
+                    .expect("Failed to get requestNextFrame function");
+            global.set(&mut scope, name.into(), func.into());
 
             v8::Global::new(&mut scope, context)
         };
@@ -486,6 +533,27 @@ impl ScriptEngine {
                 "Script terminated with unhandled exception: {}",
                 e.to_rust_string_lossy(&mut tc)
             );
+        }
+    }
+
+    pub fn next_frame(&mut self) {
+        let callbacks = std::mem::replace(
+            &mut self
+                .iso
+                .get_slot_mut::<IsoState>()
+                .expect("no state bound")
+                .next_frame_callbacks,
+            Vec::new(),
+        );
+
+        let mut scope =
+            v8::HandleScope::with_context(&mut self.iso, &self.context);
+        let global = self.context.get(&mut scope).global(&mut scope);
+
+        for cb in callbacks {
+            cb.get(&mut scope)
+                .call(&mut scope, global.into(), &[])
+                .expect("Failed to callback to next frame");
         }
     }
 }
