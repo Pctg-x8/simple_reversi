@@ -427,10 +427,11 @@ impl Shaders {
 }
 
 pub struct ScriptEngine {
-    iso: v8::OwnedIsolate,
-    context: v8::Global<v8::Context>,
+    // Note: Inspectors must be destroyed before isolate destruction
     _inspector: v8::UniqueRef<v8::inspector::V8Inspector>,
     _inspector_client: Box<ScriptInspectorClient>,
+    iso: v8::OwnedIsolate,
+    context: v8::Global<v8::Context>,
 }
 impl ScriptEngine {
     pub fn new() -> Self {
