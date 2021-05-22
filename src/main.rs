@@ -83,6 +83,7 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
             std::ptr::null(),
             8 * 8,
         );
+        UNIFORM_BUFFER.unbind();
         gl::Disable(gl::DEPTH_TEST);
         gl::BindVertexArray(0);
     }
@@ -428,6 +429,8 @@ impl Shaders {
 pub struct ScriptEngine {
     iso: v8::OwnedIsolate,
     context: v8::Global<v8::Context>,
+    _inspector: v8::UniqueRef<v8::inspector::V8Inspector>,
+    _inspector_client: Box<ScriptInspectorClient>,
 }
 impl ScriptEngine {
     pub fn new() -> Self {
@@ -436,15 +439,31 @@ impl ScriptEngine {
         v8::V8::initialize();
 
         let mut iso = v8::Isolate::new(v8::CreateParams::default());
+        let mut inspector_client = Box::new(ScriptInspectorClient::new());
+        let mut inspector = v8::inspector::V8Inspector::create(
+            &mut iso,
+            &mut *inspector_client,
+        );
         let context = {
             let mut scope = v8::HandleScope::new(&mut iso);
             let context = v8::Context::new(&mut scope);
             let mut scope = v8::ContextScope::new(&mut scope, context);
 
+            inspector.context_created(
+                context,
+                1,
+                v8::inspector::StringView::from(&b"ScriptInspector"[..]),
+            );
+
             v8::Global::new(&mut scope, context)
         };
 
-        ScriptEngine { context, iso }
+        ScriptEngine {
+            context,
+            iso,
+            _inspector: inspector,
+            _inspector_client: inspector_client,
+        }
     }
 
     pub fn execute_code(&mut self, code: &str) {
@@ -460,12 +479,40 @@ impl ScriptEngine {
                 e.to_rust_string_lossy(&mut tc)
             );
         }
-        let res = script.expect("Script compilation failed?").run(&mut tc);
+        let _res = script.expect("Script compilation failed?").run(&mut tc);
         if let Some(e) = tc.exception() {
             panic!(
                 "Script terminated with unhandled exception: {}",
                 e.to_rust_string_lossy(&mut tc)
             );
         }
+    }
+}
+
+pub struct ScriptInspectorClient(v8::inspector::V8InspectorClientBase);
+impl ScriptInspectorClient {
+    pub fn new() -> Self {
+        Self(v8::inspector::V8InspectorClientBase::new::<Self>())
+    }
+}
+impl v8::inspector::V8InspectorClientImpl for ScriptInspectorClient {
+    fn base(&self) -> &v8::inspector::V8InspectorClientBase {
+        &self.0
+    }
+    fn base_mut(&mut self) -> &mut v8::inspector::V8InspectorClientBase {
+        &mut self.0
+    }
+
+    fn console_api_message(
+        &mut self,
+        _context_group_id: i32,
+        _level: i32,
+        message: &v8::inspector::StringView,
+        url: &v8::inspector::StringView,
+        line_number: u32,
+        _column_number: u32,
+        _stack_trace: &mut v8::inspector::V8StackTrace,
+    ) {
+        println!("ConsoleLog from {}:{}>{}", url, line_number, message);
     }
 }
