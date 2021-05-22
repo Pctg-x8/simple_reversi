@@ -1,4 +1,5 @@
 use glfw::Context;
+use rusty_v8 as v8;
 
 fn main() {
     let mut glfw =
@@ -11,6 +12,10 @@ fn main() {
     gl::load_with(|s| glfw.get_proc_address_raw(s));
     let buffers = Buffers::new();
     let shaders = Shaders::new();
+    let mut se = ScriptEngine::new();
+    let code = std::fs::read_to_string("./scripts/index.js")
+        .expect("Failed to load script");
+    se.execute_code(&code);
 
     while !window.should_close() {
         glfw.poll_events();
@@ -416,6 +421,51 @@ impl Shaders {
             stone_render,
             stone_render_wt_uniform_location,
             board_state_uniform_block_location,
+        }
+    }
+}
+
+pub struct ScriptEngine {
+    iso: v8::OwnedIsolate,
+    context: v8::Global<v8::Context>,
+}
+impl ScriptEngine {
+    pub fn new() -> Self {
+        let platform = v8::new_default_platform().unwrap();
+        v8::V8::initialize_platform(platform);
+        v8::V8::initialize();
+
+        let mut iso = v8::Isolate::new(v8::CreateParams::default());
+        let context = {
+            let mut scope = v8::HandleScope::new(&mut iso);
+            let context = v8::Context::new(&mut scope);
+            let mut scope = v8::ContextScope::new(&mut scope, context);
+
+            v8::Global::new(&mut scope, context)
+        };
+
+        ScriptEngine { context, iso }
+    }
+
+    pub fn execute_code(&mut self, code: &str) {
+        let mut scope =
+            v8::HandleScope::with_context(&mut self.iso, &self.context);
+        let code = v8::String::new(&mut scope, code)
+            .expect("Failed to allocate string");
+        let mut tc = v8::TryCatch::new(&mut scope);
+        let script = v8::Script::compile(&mut tc, code, None);
+        if let Some(e) = tc.exception() {
+            panic!(
+                "Script compilation failed! {}",
+                e.to_rust_string_lossy(&mut tc)
+            );
+        }
+        let res = script.expect("Script compilation failed?").run(&mut tc);
+        if let Some(e) = tc.exception() {
+            panic!(
+                "Script terminated with unhandled exception: {}",
+                e.to_rust_string_lossy(&mut tc)
+            );
         }
     }
 }

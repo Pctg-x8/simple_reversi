@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 glfw = "0.41"
 gl = "0.14"
+rusty_v8 = "0.22"

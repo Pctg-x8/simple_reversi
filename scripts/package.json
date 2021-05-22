@@ -1,0 +1,22 @@
+{
+  "name": "reversi_script",
+  "version": "1.0.0",
+  "description": "Simple Reversi scripted logics",
+  "main": "index.js",
+  "targets": {
+    "main": {
+      "context": "node",
+      "includeNodeModules": true
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild --bundle index.js --outdir=./ src/index.ts --allow-overwrite"
+  },
+  "author": "S.Percentage",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.12.1",
+    "typescript": "^4.2.4"
+  }
+}
