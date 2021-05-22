@@ -24,6 +24,59 @@ fn main() {
     }
 }
 
+fn update(buffers: &Buffers, shaders: &Shaders) {
+    const STONE_RENDER_WORLD_TRANSFORM: &'static [f32; 4 * 4] = &[
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0,
+        6.0,
+        1.0 + 6.0 * 2.0,
+    ];
+
+    unsafe {
+        gl::ClearColor(0.0, 0.4, 0.8, 1.0);
+        gl::ClearDepth(1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+
+        gl::BindVertexArray(buffers.fillrect_va);
+        gl::UseProgram(shaders.board_base_render.0);
+        gl::Uniform1f(shaders.board_base_render_scale_uniform_location, 0.8);
+        gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+        gl::UseProgram(shaders.board_grid_render.0);
+        gl::Uniform1f(shaders.board_grid_render_scale_uniform_location, 0.78);
+        gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+        gl::Enable(gl::DEPTH_TEST);
+        gl::UseProgram(shaders.stone_render.0);
+        gl::UniformMatrix4fv(
+            shaders.stone_render_wt_uniform_location,
+            1,
+            gl::FALSE,
+            STONE_RENDER_WORLD_TRANSFORM as _,
+        );
+        gl::BindVertexArray(buffers.stone_va);
+        gl::DrawElementsInstanced(
+            gl::TRIANGLES,
+            buffers.stone_index_count as _,
+            gl::UNSIGNED_SHORT,
+            std::ptr::null(),
+            8 * 8,
+        );
+        gl::Disable(gl::DEPTH_TEST);
+        gl::BindVertexArray(0);
+    }
+}
+
 struct BufferBindPoint(gl::types::GLenum);
 impl BufferBindPoint {
     pub fn bind(&self, buf: gl::types::GLuint) -> &Self {
@@ -328,58 +381,5 @@ impl Shaders {
             stone_render,
             stone_render_wt_uniform_location,
         }
-    }
-}
-
-fn update(buffers: &Buffers, shaders: &Shaders) {
-    const STONE_RENDER_WORLD_TRANSFORM: &'static [f32; 4 * 4] = &[
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        2.0,
-        0.0,
-        0.0,
-        6.0,
-        1.0 + 6.0 * 2.0,
-    ];
-
-    unsafe {
-        gl::ClearColor(0.0, 0.4, 0.8, 1.0);
-        gl::ClearDepth(1.0);
-        gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-
-        gl::BindVertexArray(buffers.fillrect_va);
-        gl::UseProgram(shaders.board_base_render.0);
-        gl::Uniform1f(shaders.board_base_render_scale_uniform_location, 0.8);
-        gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
-        gl::UseProgram(shaders.board_grid_render.0);
-        gl::Uniform1f(shaders.board_grid_render_scale_uniform_location, 0.78);
-        gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
-        gl::Enable(gl::DEPTH_TEST);
-        gl::UseProgram(shaders.stone_render.0);
-        gl::UniformMatrix4fv(
-            shaders.stone_render_wt_uniform_location,
-            1,
-            gl::FALSE,
-            STONE_RENDER_WORLD_TRANSFORM as _,
-        );
-        gl::BindVertexArray(buffers.stone_va);
-        gl::DrawElementsInstanced(
-            gl::TRIANGLES,
-            buffers.stone_index_count as _,
-            gl::UNSIGNED_SHORT,
-            std::ptr::null(),
-            8 * 8,
-        );
-        gl::Disable(gl::DEPTH_TEST);
-        gl::BindVertexArray(0);
     }
 }
