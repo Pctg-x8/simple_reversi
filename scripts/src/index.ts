@@ -27,8 +27,11 @@ class CellState {
         this.stateFlags ^= 0x01;
     }
 }
+const AROUND_DIRECTIONS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
 class BoardState {
     private cells: CellState[] = [];
+    private whiteCounter = 2;
+    private blackCounter = 2;
 
     constructor() {
         for (let y = 0; y < 8; y++) {
@@ -46,20 +49,45 @@ class BoardState {
         if (0 <= x && x < 8 && 0 <= y && y < 8) return this.cells[x + y * 8];
     }
 
+    /** Returns true if successfully placed the stone */
     place(x: number, y: number, color: "white" | "black"): boolean {
         const c = this.cell(x, y);
         if (!c) return false;
         if (c.placed) return false;
         c.place(color);
-        const DIRECTIONS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
-        DIRECTIONS.forEach(([dx, dy]) => {
+        if (color === "white") {
+            this.whiteCounter++;
+        } else {
+            this.blackCounter++;
+        }
+        AROUND_DIRECTIONS.forEach(([dx, dy]) => {
             const flipCount = this.findFlipCount(x, y, dx, dy, color);
             if (!flipCount) return;
             for (let mag = 1; mag <= flipCount; mag++) {
                 this.cell(x + dx * mag, y + dy * mag)!.flip();
+                if (color === "white") {
+                    this.whiteCounter++;
+                    this.blackCounter--;
+                } else {
+                    this.blackCounter++;
+                    this.whiteCounter--;
+                }
             }
-        })
+        });
         return true;
+    }
+
+    findLegalPlacePositions(color: "white" | "black"): [number, number][] {
+        let positions: [number, number][] = [];
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                if (this.cell(x, y)!.placed) continue;
+                const flipCounts = AROUND_DIRECTIONS.map(([dx, dy]) => this.findFlipCount(x, y, dx, dy, color)).filter(Boolean);
+                if (flipCounts.length > 0) positions.push([x, y]);
+            }
+        }
+
+        return positions;
     }
 
     findFlipCount(x: number, y: number, dx: number, dy: number, color: "white" | "black"): number | undefined {
@@ -75,7 +103,7 @@ class BoardState {
     }
 
     dump() {
-        let str = "";
+        let str = `white ${this.whiteCounter} black ${this.blackCounter}`;
         for (let y = 0; y < 8; y++) {
             str += "\n";
             for (let x = 0; x < 8; x++) {
@@ -103,18 +131,19 @@ class EdgeTrigger<T> {
     }
 }
 
-class Board {
+class BoardControl {
     private state = new BoardState();
     private buttonPressEdge = new EdgeTrigger(false);
-    private currentPhase: "black" | "white" = "black";
+    private currentPhase: "black" | "white" = "white";
+    private legalPlacePositions: [number, number][] = [];
 
     async run(): Promise<void> {
         const aroundMargin = 480 * (1.0 - 0.78) * 0.5;
         const boardSize = 480 - aroundMargin * 2;
         const cellSize = boardSize / 8;
         console.log(`aroundMargin: ${aroundMargin}`);
-        this.state.dump();
-        console.log(`${this.currentPhase} phase`);
+        // to initialize internal states
+        this.flipTurn();
 
         while (true) {
             if (this.buttonPressEdge.update(isButtonPressing()) && this.buttonPressEdge.current) {
@@ -122,10 +151,11 @@ class Board {
                 const [bx, by] = [cx - aroundMargin, cy - aroundMargin];
                 if (0 <= bx && bx < boardSize && 0 <= by && by < boardSize) {
                     const [cellX, cellY] = [Math.trunc(bx / cellSize), Math.trunc(by / cellSize)];
-                    if (this.state.place(cellX, cellY, this.currentPhase)) {
-                        this.currentPhase = this.currentPhase === "white" ? "black" : "white";
-                        this.state.dump();
-                        console.log(`${this.currentPhase} phase`);
+                    if (this.legalPlacePositions.find(([px, py]) => px == cellX && py == cellY) !== undefined) {
+                        this.state.place(cellX, cellY, this.currentPhase);
+                        do {
+                            this.flipTurn();
+                        } while (this.legalPlacePositions.length <= 0);
                     }
                 }
             }
@@ -133,7 +163,14 @@ class Board {
             await nextFrame();
         }
     }
+
+    flipTurn() {
+        this.currentPhase = this.currentPhase === "white" ? "black" : "white";
+        this.state.dump();
+        console.log(`${this.currentPhase} phase`);
+        this.legalPlacePositions = this.state.findLegalPlacePositions(this.currentPhase);
+    }
 }
 
-const board = new Board();
+const board = new BoardControl();
 Promise.all([board.run()]);
