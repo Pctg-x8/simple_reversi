@@ -64,6 +64,12 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
             gl::FALSE,
             STONE_RENDER_WORLD_TRANSFORM as _,
         );
+        UNIFORM_BUFFER.bind(buffers.board_state_buffer);
+        gl::UniformBlockBinding(
+            shaders.stone_render.0,
+            shaders.board_state_uniform_block_location,
+            UNIFORM_BUFFER.0,
+        );
         gl::BindVertexArray(buffers.stone_va);
         gl::DrawElementsInstanced(
             gl::TRIANGLES,
@@ -106,6 +112,12 @@ impl BufferBindPoint {
 static ARRAY_BUFFER: BufferBindPoint = BufferBindPoint(gl::ARRAY_BUFFER);
 static ELEMENT_ARRAY_BUFFER: BufferBindPoint =
     BufferBindPoint(gl::ELEMENT_ARRAY_BUFFER);
+static UNIFORM_BUFFER: BufferBindPoint = BufferBindPoint(gl::UNIFORM_BUFFER);
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CellState(u32);
+pub const BOARD_STATE_SIZE: usize = std::mem::size_of::<CellState>() * 8 * 8;
 
 struct Buffers {
     fillrect_vb: gl::types::GLuint,
@@ -114,6 +126,7 @@ struct Buffers {
     stone_index_vb: gl::types::GLuint,
     stone_va: gl::types::GLuint,
     stone_index_count: usize,
+    board_state_buffer: gl::types::GLuint,
 }
 impl Buffers {
     pub fn new() -> Self {
@@ -154,13 +167,13 @@ impl Buffers {
             .chain(stone_surface_indices.iter().map(|&x| x * 2 + 1))
             .collect();
 
-        let mut vbs = [0, 0, 0];
+        let mut vbs = [0, 0, 0, 0];
         let mut vas = [0, 0];
         unsafe {
             gl::GenBuffers(vbs.len() as _, vbs.as_mut_ptr());
             gl::GenVertexArrays(vas.len() as _, vas.as_mut_ptr());
         }
-        let [fillrect_vb, stone_vb, stone_index_vb] = vbs;
+        let [fillrect_vb, stone_vb, stone_index_vb, board_state_buffer] = vbs;
         let [fillrect_va, stone_va] = vas;
         unsafe {
             ARRAY_BUFFER
@@ -172,6 +185,10 @@ impl Buffers {
             ELEMENT_ARRAY_BUFFER
                 .bind(stone_index_vb)
                 .data(&stone_indices, gl::STATIC_DRAW)
+                .unbind();
+            UNIFORM_BUFFER
+                .bind(board_state_buffer)
+                .data(&[CellState(0); 8 * 8], gl::DYNAMIC_DRAW)
                 .unbind();
 
             gl::BindVertexArray(fillrect_va);
@@ -209,6 +226,7 @@ impl Buffers {
             stone_index_vb,
             stone_va,
             stone_index_count: stone_indices.len(),
+            board_state_buffer,
         }
     }
 }
@@ -216,8 +234,14 @@ impl Drop for Buffers {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteVertexArrays(
-                3,
-                [self.fillrect_vb, self.stone_vb, self.stone_index_vb].as_ptr(),
+                4,
+                [
+                    self.fillrect_vb,
+                    self.stone_vb,
+                    self.stone_index_vb,
+                    self.board_state_buffer,
+                ]
+                .as_ptr(),
             );
             gl::DeleteBuffers(2, [self.fillrect_va, self.stone_va].as_ptr());
         }
@@ -316,6 +340,12 @@ impl Program {
             Some(r)
         }
     }
+    pub fn uniform_block_location(
+        &self,
+        name: &std::ffi::CStr,
+    ) -> gl::types::GLuint {
+        unsafe { gl::GetUniformBlockIndex(self.0, name.as_ptr()) }
+    }
 }
 impl Drop for Program {
     fn drop(&mut self) {
@@ -332,6 +362,7 @@ struct Shaders {
     board_grid_render_scale_uniform_location: gl::types::GLint,
     stone_render: Program,
     stone_render_wt_uniform_location: gl::types::GLint,
+    board_state_uniform_block_location: gl::types::GLuint,
 }
 impl Shaders {
     pub fn new() -> Self {
@@ -372,6 +403,10 @@ impl Shaders {
                 )
             })
             .expect("no world transform uniform defined");
+        let board_state_uniform_block_location = stone_render
+            .uniform_block_location(unsafe {
+                std::ffi::CStr::from_bytes_with_nul_unchecked(b"boardState\0")
+            });
 
         Shaders {
             board_base_render,
@@ -380,6 +415,7 @@ impl Shaders {
             board_grid_render_scale_uniform_location,
             stone_render,
             stone_render_wt_uniform_location,
+            board_state_uniform_block_location,
         }
     }
 }
