@@ -51,26 +51,76 @@ impl BufferBindPoint {
     }
 }
 static ARRAY_BUFFER: BufferBindPoint = BufferBindPoint(gl::ARRAY_BUFFER);
+static ELEMENT_ARRAY_BUFFER: BufferBindPoint =
+    BufferBindPoint(gl::ELEMENT_ARRAY_BUFFER);
 
 struct Buffers {
     fillrect_vb: gl::types::GLuint,
     fillrect_va: gl::types::GLuint,
+    stone_vb: gl::types::GLuint,
+    stone_index_vb: gl::types::GLuint,
+    stone_va: gl::types::GLuint,
+    stone_index_count: usize,
 }
 impl Buffers {
     pub fn new() -> Self {
         const FILLRECT_VERTICES: &'static [[f32; 2]; 4] =
             &[[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]];
+        const STONE_SURFACE_VERTEX_COUNT: usize = 36;
+        let stone_surface_vertex_points =
+            (0..STONE_SURFACE_VERTEX_COUNT).map(|x| {
+                (x as f32 * std::f32::consts::TAU
+                    / STONE_SURFACE_VERTEX_COUNT as f32)
+                    .sin_cos()
+            });
+        let stone_vertices: Vec<_> = stone_surface_vertex_points
+            .flat_map(|(s, c)| vec![[s, c, 0.0, 1.0], [s, c, 1.0, 1.0]])
+            .collect();
+        // 0, 1, 2, 2,  1, 3, 3,  2, 4, 4,  3, 5...
+        // _, 1, 1, 0, -1, 2, 0, -1, 2, 0, -1, 2...
+        let stone_side_indices = [1, 1]
+            .iter()
+            .copied()
+            .chain(
+                std::iter::repeat(&[0, -1, 2])
+                    .take(STONE_SURFACE_VERTEX_COUNT * 2 - 1)
+                    .flat_map(|x| x.iter().copied()),
+            )
+            .chain([0].iter().copied())
+            .scan(0, |st, x| {
+                let ost = *st;
+                *st += x;
+                // never negates
+                Some((ost as u16) % (STONE_SURFACE_VERTEX_COUNT as u16 * 2))
+            });
+        let stone_surface_indices: Vec<_> = (1..STONE_SURFACE_VERTEX_COUNT - 1)
+            .flat_map(|x| vec![0, x as u16, x as u16 + 1])
+            .collect();
+        let stone_indices: Vec<u16> = stone_side_indices
+            .chain(stone_surface_indices.iter().map(|&x| x * 2))
+            .chain(stone_surface_indices.iter().map(|&x| x * 2 + 1))
+            .collect();
 
-        let mut fillrect_va = 0;
-        let mut fillrect_vb = 0;
+        let mut vbs = [0, 0, 0];
+        let mut vas = [0, 0];
         unsafe {
-            gl::GenBuffers(1, &mut fillrect_vb);
+            gl::GenBuffers(vbs.len() as _, vbs.as_mut_ptr());
+            gl::GenVertexArrays(vas.len() as _, vas.as_mut_ptr());
+        }
+        let [fillrect_vb, stone_vb, stone_index_vb] = vbs;
+        let [fillrect_va, stone_va] = vas;
+        unsafe {
             ARRAY_BUFFER
                 .bind(fillrect_vb)
                 .data(FILLRECT_VERTICES, gl::STATIC_DRAW)
+                .bind(stone_vb)
+                .data(&stone_vertices, gl::STATIC_DRAW)
+                .unbind();
+            ELEMENT_ARRAY_BUFFER
+                .bind(stone_index_vb)
+                .data(&stone_indices, gl::STATIC_DRAW)
                 .unbind();
 
-            gl::GenVertexArrays(1, &mut fillrect_va);
             gl::BindVertexArray(fillrect_va);
             ARRAY_BUFFER.bind(fillrect_vb);
             gl::EnableVertexArrayAttrib(fillrect_va, 0);
@@ -82,21 +132,41 @@ impl Buffers {
                 0,
                 std::ptr::null(),
             );
+            gl::BindVertexArray(stone_va);
+            ARRAY_BUFFER.bind(stone_vb);
+            gl::EnableVertexArrayAttrib(stone_va, 0);
+            gl::VertexAttribPointer(
+                0,
+                4,
+                gl::FLOAT,
+                gl::FALSE,
+                0,
+                std::ptr::null(),
+            );
+            ELEMENT_ARRAY_BUFFER.bind(stone_index_vb);
             gl::BindVertexArray(0);
+            ELEMENT_ARRAY_BUFFER.unbind();
             ARRAY_BUFFER.unbind();
         }
 
         Buffers {
             fillrect_vb,
             fillrect_va,
+            stone_vb,
+            stone_index_vb,
+            stone_va,
+            stone_index_count: stone_indices.len(),
         }
     }
 }
 impl Drop for Buffers {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteVertexArrays(1, &self.fillrect_va);
-            gl::DeleteBuffers(1, &self.fillrect_vb);
+            gl::DeleteVertexArrays(
+                3,
+                [self.fillrect_vb, self.stone_vb, self.stone_index_vb].as_ptr(),
+            );
+            gl::DeleteBuffers(2, [self.fillrect_va, self.stone_va].as_ptr());
         }
     }
 }
@@ -207,6 +277,8 @@ struct Shaders {
     board_base_render_scale_uniform_location: gl::types::GLint,
     board_grid_render: Program,
     board_grid_render_scale_uniform_location: gl::types::GLint,
+    stone_render: Program,
+    stone_render_wt_uniform_location: gl::types::GLint,
 }
 impl Shaders {
     pub fn new() -> Self {
@@ -220,6 +292,10 @@ impl Shaders {
             gl::FRAGMENT_SHADER,
             "./assets/board_grid.fsh",
         );
+        let stone_vsh =
+            Shader::compile_file(gl::VERTEX_SHADER, "./assets/stone.vsh");
+        let stone_fsh =
+            Shader::compile_file(gl::FRAGMENT_SHADER, "./assets/stone.fsh");
 
         let board_base_render =
             Program::link_shaders(&[&scaled_vsh, &board_base_fsh]);
@@ -235,20 +311,50 @@ impl Shaders {
                 std::ffi::CStr::from_bytes_with_nul_unchecked(b"scale\0")
             })
             .expect("no scale uniform defined");
+        let stone_render = Program::link_shaders(&[&stone_vsh, &stone_fsh]);
+        let stone_render_wt_uniform_location = stone_render
+            .uniform_location(unsafe {
+                std::ffi::CStr::from_bytes_with_nul_unchecked(
+                    b"world_transform\0",
+                )
+            })
+            .expect("no world transform uniform defined");
 
         Shaders {
             board_base_render,
             board_base_render_scale_uniform_location,
             board_grid_render,
             board_grid_render_scale_uniform_location,
+            stone_render,
+            stone_render_wt_uniform_location,
         }
     }
 }
 
 fn update(buffers: &Buffers, shaders: &Shaders) {
+    const STONE_RENDER_WORLD_TRANSFORM: &'static [f32; 4 * 4] = &[
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0,
+        6.0,
+        1.0 + 6.0 * 2.0,
+    ];
+
     unsafe {
         gl::ClearColor(0.0, 0.4, 0.8, 1.0);
-        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::ClearDepth(1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
         gl::BindVertexArray(buffers.fillrect_va);
         gl::UseProgram(shaders.board_base_render.0);
@@ -257,6 +363,22 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
         gl::UseProgram(shaders.board_grid_render.0);
         gl::Uniform1f(shaders.board_grid_render_scale_uniform_location, 0.78);
         gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+        gl::Enable(gl::DEPTH_TEST);
+        gl::UseProgram(shaders.stone_render.0);
+        gl::UniformMatrix4fv(
+            shaders.stone_render_wt_uniform_location,
+            1,
+            gl::FALSE,
+            STONE_RENDER_WORLD_TRANSFORM as _,
+        );
+        gl::BindVertexArray(buffers.stone_va);
+        gl::DrawElements(
+            gl::TRIANGLES,
+            buffers.stone_index_count as _,
+            gl::UNSIGNED_SHORT,
+            std::ptr::null(),
+        );
+        gl::Disable(gl::DEPTH_TEST);
         gl::BindVertexArray(0);
     }
 }
