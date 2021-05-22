@@ -9,7 +9,8 @@ fn main() {
     let (mut window, events) = glfw
         .create_window(480, 480, "Simple Reversi", glfw::WindowMode::Windowed)
         .expect("Failed to create window");
-    window.set_key_polling(true);
+    window.set_mouse_button_polling(true);
+    window.set_cursor_pos_polling(true);
     window.make_current();
     gl::load_with(|s| glfw.get_proc_address_raw(s));
     let buffers = Buffers::new();
@@ -23,6 +24,23 @@ fn main() {
         glfw.poll_events();
         for (_, e) in glfw::flush_messages(&events) {
             match e {
+                glfw::WindowEvent::MouseButton(
+                    glfw::MouseButton::Button1,
+                    glfw::Action::Press,
+                    _,
+                ) => {
+                    se.set_button_pressing_state(true);
+                }
+                glfw::WindowEvent::MouseButton(
+                    glfw::MouseButton::Button1,
+                    glfw::Action::Release,
+                    _,
+                ) => {
+                    se.set_button_pressing_state(false);
+                }
+                glfw::WindowEvent::CursorPos(x, y) => {
+                    se.set_cursor_pos(x, y);
+                }
                 _ => {}
             }
         }
@@ -431,14 +449,19 @@ impl Shaders {
 
 pub struct IsoState {
     pub next_frame_callbacks: Vec<v8::Global<v8::Function>>,
+    pub cursor_pos: (f64, f64),
+    pub button_pressing: bool,
 }
 impl IsoState {
     pub fn new() -> Self {
         Self {
             next_frame_callbacks: Vec::new(),
+            cursor_pos: (0.0, 0.0),
+            button_pressing: false,
         }
     }
 }
+
 fn request_next_frame(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -460,6 +483,32 @@ fn request_next_frame(
         .expect("no state bound?")
         .next_frame_callbacks
         .push(f);
+}
+fn is_button_pressing(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let pressing = scope
+        .get_slot::<IsoState>()
+        .expect("no state bound")
+        .button_pressing;
+    let v = v8::Boolean::new(scope, pressing);
+    rv.set(v.into());
+}
+fn cursor_pos(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let (cx, cy) = scope
+        .get_slot::<IsoState>()
+        .expect("no state bound")
+        .cursor_pos;
+    let vx = v8::Number::new(scope, cx);
+    let vy = v8::Number::new(scope, cy);
+    let va = v8::Array::new_with_elements(scope, &[vx.into(), vy.into()]);
+    rv.set(va.into());
 }
 
 pub struct ScriptEngine {
@@ -502,6 +551,19 @@ impl ScriptEngine {
                     .get_function(&mut scope)
                     .expect("Failed to get requestNextFrame function");
             global.set(&mut scope, name.into(), func.into());
+            let name = v8::String::new(&mut scope, "isButtonPressing")
+                .expect("Failed to create function name object");
+            let func =
+                v8::FunctionTemplate::new(&mut scope, is_button_pressing)
+                    .get_function(&mut scope)
+                    .expect("Failed to get isButtonPressing function");
+            global.set(&mut scope, name.into(), func.into());
+            let name = v8::String::new(&mut scope, "cursorPos")
+                .expect("Failed to create function name object");
+            let func = v8::FunctionTemplate::new(&mut scope, cursor_pos)
+                .get_function(&mut scope)
+                .expect("Failed to get cursorPos function");
+            global.set(&mut scope, name.into(), func.into());
 
             v8::Global::new(&mut scope, context)
         };
@@ -512,6 +574,19 @@ impl ScriptEngine {
             _inspector: inspector,
             _inspector_client: inspector_client,
         }
+    }
+
+    pub fn set_cursor_pos(&mut self, x: f64, y: f64) {
+        self.iso
+            .get_slot_mut::<IsoState>()
+            .expect("no state bound")
+            .cursor_pos = (x, y);
+    }
+    pub fn set_button_pressing_state(&mut self, pressing: bool) {
+        self.iso
+            .get_slot_mut::<IsoState>()
+            .expect("no state bound")
+            .button_pressing = pressing;
     }
 
     pub fn execute_code(&mut self, code: &str) {
