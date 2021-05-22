@@ -1,6 +1,6 @@
 declare function requestNextFrame(callback: () => void): void;
 function nextFrame(): Promise<void> {
-    return new Promise(resolve => requestNextFrame(resolve));
+    return new Promise((resolve) => requestNextFrame(resolve));
 }
 declare function isButtonPressing(): boolean;
 declare function cursorPos(): [number, number];
@@ -27,7 +27,16 @@ class CellState {
         this.stateFlags ^= 0x01;
     }
 }
-const AROUND_DIRECTIONS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+const AROUND_DIRECTIONS = [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+];
 class BoardState {
     private cells: CellState[] = [];
     private whiteCounter = 2;
@@ -82,7 +91,9 @@ class BoardState {
         for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
                 if (this.cell(x, y)!.placed) continue;
-                const flipCounts = AROUND_DIRECTIONS.map(([dx, dy]) => this.findFlipCount(x, y, dx, dy, color)).filter(Boolean);
+                const flipCounts = AROUND_DIRECTIONS.map(([dx, dy]) =>
+                    this.findFlipCount(x, y, dx, dy, color)
+                ).filter(Boolean);
                 if (flipCounts.length > 0) positions.push([x, y]);
             }
         }
@@ -90,7 +101,13 @@ class BoardState {
         return positions;
     }
 
-    findFlipCount(x: number, y: number, dx: number, dy: number, color: "white" | "black"): number | undefined {
+    private findFlipCount(
+        x: number,
+        y: number,
+        dx: number,
+        dy: number,
+        color: "white" | "black"
+    ): number | undefined {
         const c2 = this.cell(x + dx, y + dy);
         if (!c2 || !c2.placed || c2.color === color) return;
         let mag = 2;
@@ -122,7 +139,9 @@ class BoardState {
 class EdgeTrigger<T> {
     constructor(private value: T) {}
 
-    get current(): T { return this.value; }
+    get current(): T {
+        return this.value;
+    }
 
     update(newvalue: T): boolean {
         const changed = this.value !== newvalue;
@@ -146,12 +165,18 @@ class BoardControl {
         this.flipTurn();
 
         while (true) {
-            if (this.buttonPressEdge.update(isButtonPressing()) && this.buttonPressEdge.current) {
+            if (
+                this.buttonPressEdge.update(isButtonPressing()) &&
+                this.buttonPressEdge.current
+            ) {
                 const [cx, cy] = cursorPos();
                 const [bx, by] = [cx - aroundMargin, cy - aroundMargin];
                 if (0 <= bx && bx < boardSize && 0 <= by && by < boardSize) {
-                    const [cellX, cellY] = [Math.trunc(bx / cellSize), Math.trunc(by / cellSize)];
-                    if (this.legalPlacePositions.find(([px, py]) => px == cellX && py == cellY) !== undefined) {
+                    const [cellX, cellY] = [
+                        Math.trunc(bx / cellSize),
+                        Math.trunc(by / cellSize),
+                    ];
+                    if (this.isLegalPlacePosition(cellX, cellY)) {
                         this.state.place(cellX, cellY, this.currentPhase);
                         do {
                             this.flipTurn();
@@ -164,11 +189,20 @@ class BoardControl {
         }
     }
 
-    flipTurn() {
+    private isLegalPlacePosition(x: number, y: number): boolean {
+        return (
+            this.legalPlacePositions.find(([px, py]) => px == x && py == y) !==
+            undefined
+        );
+    }
+
+    private flipTurn() {
         this.currentPhase = this.currentPhase === "white" ? "black" : "white";
         this.state.dump();
         console.log(`${this.currentPhase} phase`);
-        this.legalPlacePositions = this.state.findLegalPlacePositions(this.currentPhase);
+        this.legalPlacePositions = this.state.findLegalPlacePositions(
+            this.currentPhase
+        );
     }
 }
 
