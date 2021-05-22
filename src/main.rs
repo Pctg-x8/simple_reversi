@@ -372,11 +372,12 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
             STONE_RENDER_WORLD_TRANSFORM as _,
         );
         gl::BindVertexArray(buffers.stone_va);
-        gl::DrawElements(
+        gl::DrawElementsInstanced(
             gl::TRIANGLES,
             buffers.stone_index_count as _,
             gl::UNSIGNED_SHORT,
             std::ptr::null(),
+            8 * 8,
         );
         gl::Disable(gl::DEPTH_TEST);
         gl::BindVertexArray(0);
