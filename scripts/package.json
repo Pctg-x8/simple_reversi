@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "esbuild --bundle index.js --outdir=./ src/index.ts --allow-overwrite"
+    "build": "esbuild --bundle src/index.ts --outfile=index.js"
   },
   "author": "S.Percentage",
   "license": "ISC",
