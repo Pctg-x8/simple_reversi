@@ -6,6 +6,15 @@ use rusty_v8 as v8;
 fn main() {
     let mut glfw =
         glfw::init(glfw::FAIL_ON_ERRORS).expect("Failed to initialize glfw");
+    glfw.window_hint(glfw::WindowHint::Resizable(false));
+    if cfg!(target_os = "macos") {
+        glfw.window_hint(glfw::WindowHint::ContextVersionMajor(3));
+        glfw.window_hint(glfw::WindowHint::ContextVersionMinor(2));
+        glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+        glfw.window_hint(glfw::WindowHint::OpenGlProfile(
+            glfw::OpenGlProfileHint::Core,
+        ));
+    }
     let (mut window, events) = glfw
         .create_window(480, 480, "Simple Reversi", glfw::WindowMode::Windowed)
         .expect("Failed to create window");
@@ -13,6 +22,11 @@ fn main() {
     window.set_cursor_pos_polling(true);
     window.make_current();
     gl::load_with(|s| glfw.get_proc_address_raw(s));
+    println!("Using OpenGL {}", unsafe {
+        std::ffi::CStr::from_ptr(gl::GetString(gl::VERSION) as _)
+            .to_str()
+            .expect("invalid string")
+    });
     let buffers = Buffers::new();
     let shaders = Shaders::new();
     let mut se = ScriptEngine::new();
@@ -220,7 +234,7 @@ impl Buffers {
 
             gl::BindVertexArray(fillrect_va);
             ARRAY_BUFFER.bind(fillrect_vb);
-            gl::EnableVertexArrayAttrib(fillrect_va, 0);
+            gl::EnableVertexAttribArray(0);
             gl::VertexAttribPointer(
                 0,
                 2,
@@ -231,7 +245,7 @@ impl Buffers {
             );
             gl::BindVertexArray(stone_va);
             ARRAY_BUFFER.bind(stone_vb);
-            gl::EnableVertexArrayAttrib(stone_va, 0);
+            gl::EnableVertexAttribArray(0);
             gl::VertexAttribPointer(
                 0,
                 4,
