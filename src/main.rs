@@ -193,9 +193,12 @@ static ELEMENT_ARRAY_BUFFER: BufferBindPoint =
     BufferBindPoint(gl::ELEMENT_ARRAY_BUFFER);
 static UNIFORM_BUFFER: BufferBindPoint = BufferBindPoint(gl::UNIFORM_BUFFER);
 
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct CellState(u32);
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CellState {
+    pub state_flags: u32,
+    pub flip_start_time: f32,
+}
 
 struct Buffers {
     fillrect_vb: gl::types::GLuint,

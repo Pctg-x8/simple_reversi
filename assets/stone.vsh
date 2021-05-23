@@ -7,18 +7,22 @@ uniform float time_ms;
 
 const float SPACE = 2.55;
 
+struct CellState {
+    uint stateFlags;
+    float flipStartTime;
+};
 layout(std140) uniform BoardState {
-    uint cells[8 * 8];
+    CellState cells[8 * 8];
 } boardState;
-bool cellPlaced(uint state) {
-    return (int(state) & 0x80) != 0;
+bool cellPlaced(CellState c) {
+    return (int(c.stateFlags) & 0x80) != 0;
 }
-bool cellIsWhite(uint state) {
-    return (int(state) & 0x01) != 0;
+bool cellIsWhite(CellState c) {
+    return (int(c.stateFlags) & 0x01) != 0;
 }
 
 void main() {
-    uint cell = boardState.cells[gl_InstanceID];
+    CellState cell = boardState.cells[gl_InstanceID];
     float a = cellIsWhite(cell) ? 0.0 : 3.1415926;
     mat4 rot = mat4(
         1.0, 0.0, 0.0, 0.0,
