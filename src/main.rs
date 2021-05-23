@@ -34,6 +34,7 @@ fn main() {
         .expect("Failed to load script");
     se.execute_code(&code);
 
+    let timer = std::time::Instant::now();
     while !window.should_close() {
         glfw.poll_events();
         for (_, e) in glfw::flush_messages(&events) {
@@ -58,6 +59,10 @@ fn main() {
                 _ => {}
             }
         }
+
+        let elapsed = timer.elapsed();
+        se.set_current_time(elapsed);
+
         se.next_frame();
         if let Some(bv) = se
             .iso
@@ -75,12 +80,12 @@ fn main() {
                 .subdata_ptr(bs.data(), bs.byte_length() as _, 0)
                 .unbind();
         }
-        update(&buffers, &shaders);
+        update(&buffers, &shaders, elapsed.as_nanos() as f64 / 1_000_000.0);
         window.swap_buffers();
     }
 }
 
-fn update(buffers: &Buffers, shaders: &Shaders) {
+fn update(buffers: &Buffers, shaders: &Shaders, time_ms: f64) {
     const STONE_RENDER_WORLD_TRANSFORM: &'static [f32; 4 * 4] = &[
         1.0,
         0.0,
@@ -120,6 +125,7 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
             gl::FALSE,
             STONE_RENDER_WORLD_TRANSFORM as _,
         );
+        gl::Uniform1f(shaders.stone_render_time_uniform_location, time_ms as _);
         gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, buffers.board_state_buffer);
         gl::BindVertexArray(buffers.stone_va);
         gl::DrawElementsInstanced(
@@ -435,7 +441,7 @@ struct Shaders {
     board_grid_render_scale_uniform_location: gl::types::GLint,
     stone_render: Program,
     stone_render_wt_uniform_location: gl::types::GLint,
-    board_state_uniform_block_location: gl::types::GLuint,
+    stone_render_time_uniform_location: gl::types::GLint,
 }
 impl Shaders {
     pub fn new() -> Self {
@@ -476,6 +482,11 @@ impl Shaders {
                 )
             })
             .expect("no world transform uniform defined");
+        let stone_render_time_uniform_location = stone_render
+            .uniform_location(unsafe {
+                std::ffi::CStr::from_bytes_with_nul_unchecked(b"time_ms\0")
+            })
+            .expect("no time uniform defined");
         let board_state_uniform_block_location = stone_render
             .uniform_block_location(unsafe {
                 std::ffi::CStr::from_bytes_with_nul_unchecked(b"BoardState\0")
@@ -495,7 +506,7 @@ impl Shaders {
             board_grid_render_scale_uniform_location,
             stone_render,
             stone_render_wt_uniform_location,
-            board_state_uniform_block_location,
+            stone_render_time_uniform_location,
         }
     }
 }
@@ -505,6 +516,7 @@ pub struct IsoState {
     pub cursor_pos: (f64, f64),
     pub button_pressing: bool,
     pub new_border_state_buffer: Option<v8::Global<v8::ArrayBuffer>>,
+    pub current_time_ms: f64,
 }
 impl IsoState {
     pub fn new() -> Self {
@@ -513,6 +525,7 @@ impl IsoState {
             cursor_pos: (0.0, 0.0),
             button_pressing: false,
             new_border_state_buffer: None,
+            current_time_ms: 0.0,
         }
     }
 }
@@ -586,6 +599,18 @@ fn set_board_state_buffer(
         .expect("no state bound")
         .new_border_state_buffer = Some(v);
 }
+fn current_time_ms(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let t = scope
+        .get_slot::<IsoState>()
+        .expect("no state bound")
+        .current_time_ms;
+    let v = v8::Number::new(scope, t);
+    rv.set(v.into());
+}
 
 pub struct ScriptEngine {
     // Note: Inspectors must be destroyed before isolate destruction
@@ -647,6 +672,12 @@ impl ScriptEngine {
                     .get_function(&mut scope)
                     .expect("Failed to get setBoardStateBuffer function");
             global.set(&mut scope, name.into(), func.into());
+            let name = v8::String::new(&mut scope, "currentTimeMs")
+                .expect("Failed to create function name object");
+            let func = v8::FunctionTemplate::new(&mut scope, current_time_ms)
+                .get_function(&mut scope)
+                .expect("Failed to get currentTimeMs function");
+            global.set(&mut scope, name.into(), func.into());
 
             v8::Global::new(&mut scope, context)
         };
@@ -670,6 +701,12 @@ impl ScriptEngine {
             .get_slot_mut::<IsoState>()
             .expect("no state bound")
             .button_pressing = pressing;
+    }
+    pub fn set_current_time(&mut self, t: std::time::Duration) {
+        self.iso
+            .get_slot_mut::<IsoState>()
+            .expect("no state bound")
+            .current_time_ms = t.as_nanos() as f64 / 1_000_000.0;
     }
 
     pub fn execute_code(&mut self, code: &str) {

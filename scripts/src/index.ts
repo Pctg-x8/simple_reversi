@@ -5,6 +5,7 @@ function nextFrame(): Promise<void> {
 declare function isButtonPressing(): boolean;
 declare function cursorPos(): [number, number];
 declare function setBoardStateBuffer(buffer: ArrayBuffer): void;
+declare function currentTimeMs(): number;
 
 class CellState {
     constructor(private readonly view: DataView) {}
@@ -201,6 +202,7 @@ class BoardControl {
                         Math.trunc(by / cellSize),
                     ];
                     if (this.isLegalPlacePosition(cellX, cellY)) {
+                        console.log(`place time ${currentTimeMs()}`);
                         this.state.place(cellX, cellY, this.currentPhase);
                         if (!this.state.hasGameFinished) {
                             do {
