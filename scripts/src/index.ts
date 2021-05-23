@@ -100,6 +100,15 @@ class BoardState {
         return this.blackCounter + this.whiteCounter >= 64;
     }
 
+    /** null = draw */
+    get winSide(): "white" | "black" | null {
+        if (this.blackCounter == this.whiteCounter) return null;
+        return this.blackCounter > this.whiteCounter ? "black" : "white";
+    }
+    get scoreboardText(): string {
+        return `white ${this.whiteCounter} black ${this.blackCounter}`;
+    }
+
     findLegalPlacePositions(color: "white" | "black"): [number, number][] {
         let positions: [number, number][] = [];
         for (let y = 0; y < 8; y++) {
@@ -134,7 +143,7 @@ class BoardState {
     }
 
     dump() {
-        let str = `white ${this.whiteCounter} black ${this.blackCounter}`;
+        let str = this.scoreboardText;
         for (let y = 0; y < 8; y++) {
             str += "\n";
             for (let x = 0; x < 8; x++) {
@@ -205,6 +214,12 @@ class BoardControl {
             await nextFrame();
         }
         console.log("Game finished");
+        const ws = this.state.winSide;
+        console.log(
+            `${ws === null ? "draw" : ws + " win"} (${
+                this.state.scoreboardText
+            })`
+        );
     }
 
     private isLegalPlacePosition(x: number, y: number): boolean {
