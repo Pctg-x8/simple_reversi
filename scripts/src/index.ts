@@ -248,7 +248,6 @@ class BoardControl {
         const aroundMargin = 480 * (1.0 - 0.78) * 0.5;
         const boardSize = 480 - aroundMargin * 2;
         const cellSize = boardSize / 8;
-        console.log(`aroundMargin: ${aroundMargin}`);
         // to initialize internal states
         this.state.syncStateBuffer();
         this.flipTurn();
@@ -266,7 +265,6 @@ class BoardControl {
                         Math.trunc(by / cellSize),
                     ];
                     if (this.isLegalPlacePosition(cellX, cellY)) {
-                        console.log(`place time ${currentTimeMs()}`);
                         await this.state.place(cellX, cellY, this.currentPhase);
                         if (!this.state.hasGameFinished) {
                             do {
