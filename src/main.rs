@@ -102,6 +102,7 @@ fn main() {
 }
 
 fn update(buffers: &Buffers, shaders: &Shaders, time_ms: f64) {
+    // atan(1.0/1.25)≒38deg
     const STONE_RENDER_WORLD_TRANSFORM: &'static [f32; 4 * 4] = &[
         1.0,
         0.0,
@@ -114,11 +115,11 @@ fn update(buffers: &Buffers, shaders: &Shaders, time_ms: f64) {
         0.0,
         0.0,
         1.0,
-        2.0,
+        10.0,
         0.0,
         0.0,
-        6.0,
-        1.0 + 6.0 * 2.0,
+        1.25,
+        1.0 + 1.25 * 10.0,
     ];
 
     unsafe {
