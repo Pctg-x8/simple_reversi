@@ -25,7 +25,9 @@ class StorableStd140Array<T> {
     }
 
     get(index: number): T {
-        return new this.cls(new DataView(this.buffer, this.stride * index));
+        return new this.cls(
+            new DataView(this.buffer, this.stride * index, this.cls.SIZE)
+        );
     }
 }
 
@@ -69,6 +71,10 @@ class CellState extends CellStateStorable {
     flip() {
         if (!this.placed) return;
         this.stateFlags ^= 0x01;
+    }
+
+    beginFlipAnimation(at: number) {
+        this.flipStartTime = at;
     }
 }
 const AROUND_DIRECTIONS = [
@@ -120,7 +126,9 @@ class BoardState {
             const flipCount = this.findFlipCount(x, y, dx, dy, color);
             if (!flipCount) return;
             for (let mag = 1; mag <= flipCount; mag++) {
-                this.cell(x + dx * mag, y + dy * mag)!.flip();
+                const c = this.cell(x + dx * mag, y + dy * mag)!;
+                c.flip();
+                c.beginFlipAnimation(currentTimeMs());
                 if (color === "white") {
                     this.whiteCounter++;
                     this.blackCounter--;

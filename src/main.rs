@@ -3,6 +3,22 @@ use std::{convert::TryFrom, ffi::c_void};
 use glfw::Context;
 use rusty_v8 as v8;
 
+/*
+stone movement
+
+f(x) = ax^2 + bx + c
+f(0) = 0
+f(1) = 0
+f(0.5) = 1
+
+f(0) = c = 0
+f(1) = a + b = 0 = c
+a + b = 0, b = -a
+f(0.5) = 0.5 * 0.5 * a - 0.5 * a = (0.5 - 1) * 0.5 * a = -0.5 * 0.5 * a = -0.25 * a = 1
+0.25 * a = -1, a = -4
+f(x) = -4x^2 + 4x = 4x(1 - x)
+*/
+
 fn main() {
     let mut glfw =
         glfw::init(glfw::FAIL_ON_ERRORS).expect("Failed to initialize glfw");

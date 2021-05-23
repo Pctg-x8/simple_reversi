@@ -23,15 +23,19 @@ bool cellIsWhite(CellState c) {
 
 void main() {
     CellState cell = boardState.cells[gl_InstanceID];
-    float a = cellIsWhite(cell) ? 0.0 : 3.1415926;
+    float t = cell.flipStartTime > 0.0 ? clamp(4.0 * (time_ms - cell.flipStartTime) / 1000.0, 0.0, 1.0) : 1.0;
+    float a1 = cellIsWhite(cell) ? 3.1415926 : 0;
+    float a2 = cellIsWhite(cell) ? 0.0 : 3.1415926;
+    float a = mix(a1, a2, t);
     mat4 rot = mat4(
         1.0, 0.0, 0.0, 0.0,
         0.0, cos(a),-sin(a), 0.0,
         0.0, sin(a), cos(a), 0.0,
         0.0, 0.0, 0.0, 1.0
     );
-    vec4 o = vec4((gl_InstanceID % 8 - 4 + 0.5) * SPACE, -(gl_InstanceID / 8 - 4 + 0.5) * SPACE, sin(time_ms * 0.01) * 12.0, 0.0);
+    float zo = (4.0 * t * (1.0 - t)) * 0.8;
+    vec4 o = vec4((gl_InstanceID % 8 - 4 + 0.5) * SPACE, -(gl_InstanceID / 8 - 4 + 0.5) * SPACE, -zo, 0.0);
     vec4 s = cellPlaced(cell) ? vec4(1.0, 1.0, 0.01, 1.0) : vec4(0.0);
-    gl_Position = (pos * rot + o) * s * world_transform;
+    gl_Position = ((pos * s) * rot + o) * world_transform;
     yref = pos.z;
 }
