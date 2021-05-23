@@ -7,26 +7,68 @@ declare function cursorPos(): [number, number];
 declare function setBoardStateBuffer(buffer: ArrayBuffer): void;
 declare function currentTimeMs(): number;
 
-class CellState {
+type StorableClassProperties<T> = {
+    readonly SIZE: number;
+    new (view: DataView): T;
+};
+class StorableStd140Array<T> {
+    readonly buffer: ArrayBuffer;
+    private readonly stride: number;
+
+    constructor(
+        private readonly cls: StorableClassProperties<T>,
+        elements: number
+    ) {
+        // glsl std140 layout restriction
+        this.stride = Math.trunc((cls.SIZE + 15) / 16) * 16;
+        this.buffer = new ArrayBuffer(this.stride * elements);
+    }
+
+    get(index: number): T {
+        return new this.cls(new DataView(this.buffer, this.stride * index));
+    }
+}
+
+class CellStateStorable {
+    static readonly SIZE: number = 8;
     constructor(private readonly view: DataView) {}
 
+    get stateFlags(): number {
+        return this.view.getUint32(0, true);
+    }
+    set stateFlags(v: number) {
+        this.view.setUint32(0, v, true);
+    }
+    get flipStartTime(): number {
+        return this.view.getFloat32(4, true);
+    }
+    set flipStartTime(v: number) {
+        this.view.setFloat32(4, v, true);
+    }
+}
+class CellState extends CellStateStorable {
+    init() {
+        this.stateFlags = 0;
+        this.flipStartTime = 0;
+    }
+
     get placed(): boolean {
-        return (this.view.getUint32(0, true) & 0x80) != 0;
+        return (this.stateFlags & 0x80) != 0;
     }
     get white(): boolean {
-        return (this.view.getUint32(0, true) & 0x01) != 0;
+        return (this.stateFlags & 0x01) != 0;
     }
     get color(): "white" | "black" {
         return this.white ? "white" : "black";
     }
 
     place(color: "white" | "black") {
-        this.view.setUint32(0, 0x80 | (color === "white" ? 0x01 : 0x00), true);
+        this.stateFlags = 0x80 | (color === "white" ? 0x01 : 0x00);
     }
 
     flip() {
         if (!this.placed) return;
-        this.view.setUint32(0, this.view.getUint32(0, true) ^ 0x01, true);
+        this.stateFlags ^= 0x01;
     }
 }
 const AROUND_DIRECTIONS = [
@@ -41,15 +83,14 @@ const AROUND_DIRECTIONS = [
 ];
 class BoardState {
     // for std140 uniform layout
-    private cells = new ArrayBuffer(8 * 8 * 16);
+    private cells = new StorableStd140Array(CellState, 8 * 8);
     private whiteCounter = 2;
     private blackCounter = 2;
 
     constructor() {
-        const v = new DataView(this.cells);
         for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
-                v.setUint32((x + y * 8) * 16, 0, true);
+                this.cells.get(x + y * 8).init();
             }
         }
         this.cell(3, 3)!.place("black");
@@ -60,7 +101,7 @@ class BoardState {
 
     cell(x: number, y: number): CellState | undefined {
         if (0 <= x && x < 8 && 0 <= y && y < 8) {
-            return new CellState(new DataView(this.cells, (x + y * 8) * 16));
+            return this.cells.get(x + y * 8);
         }
     }
 
@@ -94,7 +135,7 @@ class BoardState {
     }
 
     syncStateBuffer() {
-        setBoardStateBuffer(this.cells);
+        setBoardStateBuffer(this.cells.buffer);
     }
 
     get hasGameFinished(): boolean {
