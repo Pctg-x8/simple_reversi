@@ -111,8 +111,12 @@ class BoardState {
         }
     }
 
-    /** Returns true if successfully placed the stone */
-    place(x: number, y: number, color: "white" | "black"): boolean {
+    /** Returns true if successfully placed the stone, escapes frame for motion */
+    async place(
+        x: number,
+        y: number,
+        color: "white" | "black"
+    ): Promise<boolean> {
         const c = this.cell(x, y);
         if (!c) return false;
         if (c.placed) return false;
@@ -122,10 +126,19 @@ class BoardState {
         } else {
             this.blackCounter++;
         }
-        AROUND_DIRECTIONS.forEach(([dx, dy]) => {
-            const flipCount = this.findFlipCount(x, y, dx, dy, color);
-            if (!flipCount) return;
-            for (let mag = 1; mag <= flipCount; mag++) {
+        const flipDirections: [number, number, number][] =
+            AROUND_DIRECTIONS.flatMap(([dx, dy]) => {
+                const flipCount = this.findFlipCount(x, y, dx, dy, color);
+                if (!flipCount) return [];
+                return [[dx, dy, flipCount]];
+            });
+        const flipDirectionMax = flipDirections.reduce(
+            (a, [, , c]) => Math.max(a, c),
+            0
+        );
+        for (let mag = 1; mag <= flipDirectionMax; mag++) {
+            for (const [dx, dy, max] of flipDirections) {
+                if (max < mag) continue;
                 const c = this.cell(x + dx * mag, y + dy * mag)!;
                 c.flip();
                 c.beginFlipAnimation(currentTimeMs());
@@ -137,7 +150,9 @@ class BoardState {
                     this.whiteCounter--;
                 }
             }
-        });
+            this.syncStateBuffer();
+            for (let i = 0; i < 4; i++) await nextFrame();
+        }
         this.syncStateBuffer();
         return true;
     }
@@ -252,7 +267,7 @@ class BoardControl {
                     ];
                     if (this.isLegalPlacePosition(cellX, cellY)) {
                         console.log(`place time ${currentTimeMs()}`);
-                        this.state.place(cellX, cellY, this.currentPhase);
+                        await this.state.place(cellX, cellY, this.currentPhase);
                         if (!this.state.hasGameFinished) {
                             do {
                                 this.flipTurn();
