@@ -6,7 +6,7 @@ declare function isButtonPressing(): boolean;
 declare function cursorPos(): [number, number];
 
 class CellState {
-    constructor(private view: DataView) { }
+    constructor(private view: DataView) {}
 
     get placed(): boolean {
         return (this.view.getUint32(0, true) & 0x80) != 0;
@@ -56,7 +56,9 @@ class BoardState {
     }
 
     cell(x: number, y: number): CellState | undefined {
-        if (0 <= x && x < 8 && 0 <= y && y < 8) return new CellState(new DataView(this.cells, (x + y * 8) * 4));
+        if (0 <= x && x < 8 && 0 <= y && y < 8) {
+            return new CellState(new DataView(this.cells, (x + y * 8) * 4));
+        }
     }
 
     /** Returns true if successfully placed the stone */
@@ -138,7 +140,7 @@ class BoardState {
 }
 
 class EdgeTrigger<T> {
-    constructor(private value: T) { }
+    constructor(private value: T) {}
 
     get current(): T {
         return this.value;
