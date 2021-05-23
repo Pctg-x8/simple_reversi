@@ -6,25 +6,25 @@ declare function isButtonPressing(): boolean;
 declare function cursorPos(): [number, number];
 
 class CellState {
-    constructor(private stateFlags: number) {}
+    constructor(private view: DataView) { }
 
     get placed(): boolean {
-        return (this.stateFlags & 0x80) != 0;
+        return (this.view.getUint32(0, true) & 0x80) != 0;
     }
     get white(): boolean {
-        return (this.stateFlags & 0x01) != 0;
+        return (this.view.getUint32(0, true) & 0x01) != 0;
     }
     get color(): "white" | "black" {
         return this.white ? "white" : "black";
     }
 
     place(color: "white" | "black") {
-        this.stateFlags = 0x80 | (color === "white" ? 0x01 : 0x00);
+        this.view.setUint32(0, 0x80 | (color === "white" ? 0x01 : 0x00), true);
     }
 
     flip() {
         if (!this.placed) return;
-        this.stateFlags ^= 0x01;
+        this.view.setUint32(0, this.view.getUint32(0, true) ^ 0x01, true);
     }
 }
 const AROUND_DIRECTIONS = [
@@ -38,14 +38,15 @@ const AROUND_DIRECTIONS = [
     [1, 1],
 ];
 class BoardState {
-    private cells: CellState[] = [];
+    private cells = new ArrayBuffer(8 * 8 * 4);
     private whiteCounter = 2;
     private blackCounter = 2;
 
     constructor() {
+        const v = new DataView(this.cells);
         for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
-                this.cells[x + y * 8] = new CellState(0);
+                v.setUint32((x + y * 8) * 4, 0, true);
             }
         }
         this.cell(3, 3)!.place("black");
@@ -55,7 +56,7 @@ class BoardState {
     }
 
     cell(x: number, y: number): CellState | undefined {
-        if (0 <= x && x < 8 && 0 <= y && y < 8) return this.cells[x + y * 8];
+        if (0 <= x && x < 8 && 0 <= y && y < 8) return new CellState(new DataView(this.cells, (x + y * 8) * 4));
     }
 
     /** Returns true if successfully placed the stone */
@@ -137,7 +138,7 @@ class BoardState {
 }
 
 class EdgeTrigger<T> {
-    constructor(private value: T) {}
+    constructor(private value: T) { }
 
     get current(): T {
         return this.value;
