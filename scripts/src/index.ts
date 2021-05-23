@@ -4,9 +4,10 @@ function nextFrame(): Promise<void> {
 }
 declare function isButtonPressing(): boolean;
 declare function cursorPos(): [number, number];
+declare function setBoardStateBuffer(buffer: ArrayBuffer): void;
 
 class CellState {
-    constructor(private view: DataView) {}
+    constructor(private readonly view: DataView) {}
 
     get placed(): boolean {
         return (this.view.getUint32(0, true) & 0x80) != 0;
@@ -38,7 +39,8 @@ const AROUND_DIRECTIONS = [
     [1, 1],
 ];
 class BoardState {
-    private cells = new ArrayBuffer(8 * 8 * 4);
+    // for std140 uniform layout
+    private cells = new ArrayBuffer(8 * 8 * 16);
     private whiteCounter = 2;
     private blackCounter = 2;
 
@@ -46,7 +48,7 @@ class BoardState {
         const v = new DataView(this.cells);
         for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
-                v.setUint32((x + y * 8) * 4, 0, true);
+                v.setUint32((x + y * 8) * 16, 0, true);
             }
         }
         this.cell(3, 3)!.place("black");
@@ -57,7 +59,7 @@ class BoardState {
 
     cell(x: number, y: number): CellState | undefined {
         if (0 <= x && x < 8 && 0 <= y && y < 8) {
-            return new CellState(new DataView(this.cells, (x + y * 8) * 4));
+            return new CellState(new DataView(this.cells, (x + y * 8) * 16));
         }
     }
 
@@ -86,7 +88,12 @@ class BoardState {
                 }
             }
         });
+        this.syncStateBuffer();
         return true;
+    }
+
+    syncStateBuffer() {
+        setBoardStateBuffer(this.cells);
     }
 
     findLegalPlacePositions(color: "white" | "black"): [number, number][] {
@@ -165,6 +172,7 @@ class BoardControl {
         const cellSize = boardSize / 8;
         console.log(`aroundMargin: ${aroundMargin}`);
         // to initialize internal states
+        this.state.syncStateBuffer();
         this.flipTurn();
 
         while (true) {

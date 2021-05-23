@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, ffi::c_void};
 
 use glfw::Context;
 use rusty_v8 as v8;
@@ -59,6 +59,22 @@ fn main() {
             }
         }
         se.next_frame();
+        if let Some(bv) = se
+            .iso
+            .get_slot_mut::<IsoState>()
+            .expect("no state bound")
+            .new_border_state_buffer
+            .take()
+        {
+            let mut scope =
+                v8::HandleScope::with_context(&mut se.iso, &se.context);
+            let bv = v8::Local::new(&mut scope, bv);
+            let bs = bv.get_backing_store();
+            UNIFORM_BUFFER
+                .bind(buffers.board_state_buffer)
+                .subdata_ptr(bs.data(), bs.byte_length() as _, 0)
+                .unbind();
+        }
         update(&buffers, &shaders);
         window.swap_buffers();
     }
@@ -104,12 +120,7 @@ fn update(buffers: &Buffers, shaders: &Shaders) {
             gl::FALSE,
             STONE_RENDER_WORLD_TRANSFORM as _,
         );
-        UNIFORM_BUFFER.bind(buffers.board_state_buffer);
-        gl::UniformBlockBinding(
-            shaders.stone_render.0,
-            shaders.board_state_uniform_block_location,
-            UNIFORM_BUFFER.0,
-        );
+        gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, buffers.board_state_buffer);
         gl::BindVertexArray(buffers.stone_va);
         gl::DrawElementsInstanced(
             gl::TRIANGLES,
@@ -149,6 +160,27 @@ impl BufferBindPoint {
         }
         self
     }
+    pub fn alloc(
+        &self,
+        size: gl::types::GLsizeiptr,
+        usage: gl::types::GLenum,
+    ) -> &Self {
+        unsafe {
+            gl::BufferData(self.0, size, std::ptr::null(), usage);
+        }
+        self
+    }
+    pub fn subdata_ptr(
+        &self,
+        ptr: *mut c_void,
+        size: gl::types::GLsizeiptr,
+        offset: gl::types::GLintptr,
+    ) -> &Self {
+        unsafe {
+            gl::BufferSubData(self.0, offset, size, ptr);
+        }
+        self
+    }
 }
 static ARRAY_BUFFER: BufferBindPoint = BufferBindPoint(gl::ARRAY_BUFFER);
 static ELEMENT_ARRAY_BUFFER: BufferBindPoint =
@@ -158,7 +190,6 @@ static UNIFORM_BUFFER: BufferBindPoint = BufferBindPoint(gl::UNIFORM_BUFFER);
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CellState(u32);
-pub const BOARD_STATE_SIZE: usize = std::mem::size_of::<CellState>() * 8 * 8;
 
 struct Buffers {
     fillrect_vb: gl::types::GLuint,
@@ -229,7 +260,8 @@ impl Buffers {
                 .unbind();
             UNIFORM_BUFFER
                 .bind(board_state_buffer)
-                .data(&[CellState(0); 8 * 8], gl::DYNAMIC_DRAW)
+                // Note: std140 layout uses 16 byte stride for arrays
+                .alloc(8 * 8 * 16, gl::DYNAMIC_DRAW)
                 .unbind();
 
             gl::BindVertexArray(fillrect_va);
@@ -446,8 +478,15 @@ impl Shaders {
             .expect("no world transform uniform defined");
         let board_state_uniform_block_location = stone_render
             .uniform_block_location(unsafe {
-                std::ffi::CStr::from_bytes_with_nul_unchecked(b"boardState\0")
+                std::ffi::CStr::from_bytes_with_nul_unchecked(b"BoardState\0")
             });
+        unsafe {
+            gl::UniformBlockBinding(
+                stone_render.0,
+                board_state_uniform_block_location,
+                0,
+            );
+        }
 
         Shaders {
             board_base_render,
@@ -465,6 +504,7 @@ pub struct IsoState {
     pub next_frame_callbacks: Vec<v8::Global<v8::Function>>,
     pub cursor_pos: (f64, f64),
     pub button_pressing: bool,
+    pub new_border_state_buffer: Option<v8::Global<v8::ArrayBuffer>>,
 }
 impl IsoState {
     pub fn new() -> Self {
@@ -472,6 +512,7 @@ impl IsoState {
             next_frame_callbacks: Vec::new(),
             cursor_pos: (0.0, 0.0),
             button_pressing: false,
+            new_border_state_buffer: None,
         }
     }
 }
@@ -523,6 +564,27 @@ fn cursor_pos(
     let vy = v8::Number::new(scope, cy);
     let va = v8::Array::new_with_elements(scope, &[vx.into(), vy.into()]);
     rv.set(va.into());
+}
+fn set_board_state_buffer(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let v = match v8::Local::<v8::ArrayBuffer>::try_from(args.get(0)) {
+        Ok(v) => v8::Global::new(scope, v),
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string())
+                .expect("Failed to create error message");
+            let err = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(err);
+            return;
+        }
+    };
+
+    scope
+        .get_slot_mut::<IsoState>()
+        .expect("no state bound")
+        .new_border_state_buffer = Some(v);
 }
 
 pub struct ScriptEngine {
@@ -577,6 +639,13 @@ impl ScriptEngine {
             let func = v8::FunctionTemplate::new(&mut scope, cursor_pos)
                 .get_function(&mut scope)
                 .expect("Failed to get cursorPos function");
+            global.set(&mut scope, name.into(), func.into());
+            let name = v8::String::new(&mut scope, "setBoardStateBuffer")
+                .expect("Failed to create function name object");
+            let func =
+                v8::FunctionTemplate::new(&mut scope, set_board_state_buffer)
+                    .get_function(&mut scope)
+                    .expect("Failed to get setBoardStateBuffer function");
             global.set(&mut scope, name.into(), func.into());
 
             v8::Global::new(&mut scope, context)
