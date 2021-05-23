@@ -96,6 +96,10 @@ class BoardState {
         setBoardStateBuffer(this.cells);
     }
 
+    get hasGameFinished(): boolean {
+        return this.blackCounter + this.whiteCounter >= 64;
+    }
+
     findLegalPlacePositions(color: "white" | "black"): [number, number][] {
         let positions: [number, number][] = [];
         for (let y = 0; y < 8; y++) {
@@ -175,7 +179,7 @@ class BoardControl {
         this.state.syncStateBuffer();
         this.flipTurn();
 
-        while (true) {
+        while (!this.state.hasGameFinished) {
             if (
                 this.buttonPressEdge.update(isButtonPressing()) &&
                 this.buttonPressEdge.current
@@ -189,15 +193,18 @@ class BoardControl {
                     ];
                     if (this.isLegalPlacePosition(cellX, cellY)) {
                         this.state.place(cellX, cellY, this.currentPhase);
-                        do {
-                            this.flipTurn();
-                        } while (this.legalPlacePositions.length <= 0);
+                        if (!this.state.hasGameFinished) {
+                            do {
+                                this.flipTurn();
+                            } while (this.legalPlacePositions.length <= 0);
+                        }
                     }
                 }
             }
 
             await nextFrame();
         }
+        console.log("Game finished");
     }
 
     private isLegalPlacePosition(x: number, y: number): boolean {
